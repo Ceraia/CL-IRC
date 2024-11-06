@@ -1,26 +1,32 @@
-use std::env;
+use clap::Parser;
 use uuid::Uuid;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio_tungstenite::connect_async;
 use futures_util::{stream::StreamExt, SinkExt};
 
+#[derive(Parser)]
+#[command(name = "client")]
+struct Args {
+    #[arg(short, long, default_value = "default")]
+    room: String,
+    #[arg(short, long, default_value = "127.0.0.1")]
+    ip: String,
+    #[arg(short, long, default_value = "80")]
+    port: u16,
+}
+
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
 
-    // Create bindings for default values
-    let default_room = "default".to_string();
-    let default_server = "ws://127.0.0.1:8080".to_string();
-
-    // Use the bindings in unwrap_or
-    let room_id = args.get(1).unwrap_or(&default_room);
-    let server_addr = args.get(2).unwrap_or(&default_server);
+    // Generate the WebSocket URL
+    let server_url = format!("ws://{}:{}", args.ip, args.port);
 
     // Generate a unique client ID
     let client_id = Uuid::new_v4().to_string();
 
     // Connect to the server
-    let (ws_stream, _) = connect_async(server_addr).await.expect("Failed to connect");
+    let (ws_stream, _) = connect_async(&server_url).await.expect("Failed to connect");
     println!("Connected to the server!");
 
     // Split the WebSocket stream into a writer and reader
@@ -30,7 +36,7 @@ async fn main() {
     write
         .send(tokio_tungstenite::tungstenite::Message::Text(format!(
             "Joining room: {}",
-            room_id
+            args.room
         )))
         .await
         .expect("Failed to send message");
