@@ -1,8 +1,7 @@
 use std::env;
 use tokio::io::{self, AsyncBufReadExt};
-use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{stream::StreamExt, SinkExt};
 
 #[tokio::main]
 async fn main() {
@@ -17,33 +16,44 @@ async fn main() {
     let server_addr = args.get(2).unwrap_or(&default_server);
 
     // Connect to the server
-    let (mut ws_stream, _) = connect_async(server_addr).await.expect("Failed to connect");
+    let (ws_stream, _) = connect_async(server_addr).await.expect("Failed to connect");
     println!("Connected to the server!");
 
+    // Split the WebSocket stream into a writer and reader
+    let (mut write, mut read) = ws_stream.split();
+
     // Send initial room join message
-    ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(format!("Joining room: {}", room_id)))
+    write
+        .send(tokio_tungstenite::tungstenite::Message::Text(format!(
+            "Joining room: {}",
+            room_id
+        )))
         .await
         .expect("Failed to send message");
 
-    // Set up a channel to read user input asynchronously
-    let (tx, mut rx) = mpsc::unbounded_channel();
-
-    // Spawn a task to read from stdin
+    // Spawn a task to handle user input and send it to the server
     tokio::spawn(async move {
         let stdin = io::BufReader::new(io::stdin());
         let mut lines = stdin.lines();
 
         while let Ok(Some(line)) = lines.next_line().await {
-            if tx.send(line).is_err() {
-                break;
+            if !line.trim().is_empty() {
+                // Send the message to the server
+                if let Err(e) = write
+                    .send(tokio_tungstenite::tungstenite::Message::Text(line))
+                    .await
+                {
+                    eprintln!("Failed to send message: {}", e);
+                    break;
+                }
             }
         }
     });
 
-    // Loop to handle user input and send it to the server
-    while let Some(message) = rx.recv().await {
-        ws_stream.send(tokio_tungstenite::tungstenite::Message::Text(message))
-            .await
-            .expect("Failed to send message");
+    // Handle incoming messages from the server
+    while let Some(Ok(msg)) = read.next().await {
+        if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
+            println!("Received: {}", text);
+        }
     }
 }
