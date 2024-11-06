@@ -1,4 +1,5 @@
 use std::env;
+use uuid::Uuid;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio_tungstenite::connect_async;
 use futures_util::{stream::StreamExt, SinkExt};
@@ -14,6 +15,9 @@ async fn main() {
     // Use the bindings in unwrap_or
     let room_id = args.get(1).unwrap_or(&default_room);
     let server_addr = args.get(2).unwrap_or(&default_server);
+
+    // Generate a unique client ID
+    let client_id = Uuid::new_v4().to_string();
 
     // Connect to the server
     let (ws_stream, _) = connect_async(server_addr).await.expect("Failed to connect");
@@ -32,15 +36,19 @@ async fn main() {
         .expect("Failed to send message");
 
     // Spawn a task to handle user input and send it to the server
+    let client_id_clone = client_id.clone();
     tokio::spawn(async move {
         let stdin = io::BufReader::new(io::stdin());
         let mut lines = stdin.lines();
 
         while let Ok(Some(line)) = lines.next_line().await {
             if !line.trim().is_empty() {
+                // Format the message with the client ID
+                let message = format!("{}:{}", client_id_clone, line);
+
                 // Send the message to the server
                 if let Err(e) = write
-                    .send(tokio_tungstenite::tungstenite::Message::Text(line))
+                    .send(tokio_tungstenite::tungstenite::Message::Text(message))
                     .await
                 {
                     eprintln!("Failed to send message: {}", e);
@@ -53,7 +61,17 @@ async fn main() {
     // Handle incoming messages from the server
     while let Some(Ok(msg)) = read.next().await {
         if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
-            println!("Received: {}", text);
+            // Split the message into client ID and content
+            let parts: Vec<&str> = text.splitn(2, ':').collect();
+            if parts.len() == 2 {
+                let sender_id = parts[0];
+                let content = parts[1];
+
+                // Only display the message if it was not sent by this client
+                if sender_id != client_id {
+                    println!("Received: {}", content);
+                }
+            }
         }
     }
 }
