@@ -12,6 +12,8 @@ futures-util = "0.3"
 uuid = { version = "1.11.0", features = ["v4"] }
 clap = { version = "4.5.20", features = ["derive"] }
 whoami = "1.5.2"
+ratatui = "0.29.0"
+crossterm = "0.28.1"
 
 [[bin]]
 name = "server"
